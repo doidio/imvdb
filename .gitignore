@@ -4,3 +4,5 @@ cmake-build-*
 *.dll
 *.pyd
 testdata/
+*.egg-info/
+dist/
