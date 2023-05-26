@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "dependencies": [
+    "python3",
+    "pybind11",
+    {
+      "name": "openvdb",
+      "features": [
+        "tools"
+      ]
+    }
+  ]
+}
