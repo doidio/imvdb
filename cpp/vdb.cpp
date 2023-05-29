@@ -3,7 +3,7 @@
 #include <openvdb/openvdb.h>
 #include <openvdb/tools/Dense.h>
 #include <openvdb/tools/FastSweeping.h>
-
+#include <openvdb/tools/VolumeToMesh.h>
 
 namespace py = pybind11;
 using namespace openvdb::OPENVDB_VERSION_NAME;
@@ -22,6 +22,11 @@ public:
 
     GridT::Ptr ptr;
 };
+
+GridT::ValueType py_probe(pyGrid &grid, const py::list &ijk) {
+    return grid.ptr->getAccessor().getValue(
+            {ijk[0].cast<Coord::ValueType>(), ijk[1].cast<Coord::ValueType>(), ijk[2].cast<Coord::ValueType>()});
+}
 
 pyGrid py_from_array(py::array &array, const py::list &origin, const py::list &spacing, GridT::ValueType background,
                      GridT::ValueType tolerance) {
@@ -92,6 +97,74 @@ pyGrid py_fog_to_sdf(pyGrid &grid, GridT::ValueType iso_value) {
     return pyGrid(tools::fogToSdf(*grid.ptr, iso_value));
 }
 
+std::tuple<py::array_t<GridT::ValueType>, py::array_t<Index32>, py::array_t<Index32>>
+py_volume_to_mesh(pyGrid &grid, double iso_value, double adaptivity) {
+    // Mesh the input grid and populate lists of mesh vertices and face vertex indices.
+    std::vector<Vec3s> points;
+    std::vector<Vec3I> triangles;
+    std::vector<Vec4I> quads;
+    tools::volumeToMesh(*grid.ptr, points, triangles, quads, iso_value, adaptivity);
+
+    // Create a deep copy of the array (because the point vector will be destroyed
+    // when this function returns).
+
+    std::vector<py::ssize_t> shape = {static_cast<py::ssize_t>(points.size()), 3};
+    std::vector<py::ssize_t> strides = {3 * static_cast<py::ssize_t>(sizeof(GridT::ValueType)),
+                                        static_cast<py::ssize_t>(sizeof(GridT::ValueType))};
+    py::buffer_info pointInfo(points.data(),
+                              sizeof(GridT::ValueType),
+                              py::format_descriptor<GridT::ValueType>::format(),
+                              2,
+                              shape,
+                              strides);
+    py::array_t<GridT::ValueType> pointArray(pointInfo);
+
+    shape = {static_cast<py::ssize_t>(triangles.size()), 3};
+    strides = {3 * static_cast<py::ssize_t>(sizeof(Index32)), static_cast<py::ssize_t>(sizeof(Index32))};
+    py::buffer_info triangleInfo(triangles.data(),
+                                 sizeof(Index32),
+                                 py::format_descriptor<Index32>::format(),
+                                 2,
+                                 shape,
+                                 strides);
+    py::array_t<Index32> triangleArray(triangleInfo);
+
+    shape = {static_cast<py::ssize_t>(quads.size()), 4};
+    strides = {4 * static_cast<py::ssize_t>(sizeof(Index32)), static_cast<py::ssize_t>(sizeof(Index32))};
+    py::buffer_info quadInfo(quads.data(),
+                             sizeof(Index32),
+                             py::format_descriptor<Index32>::format(),
+                             2,
+                             shape,
+                             strides);
+    py::array_t<Index32> quadArray(quadInfo);
+
+    return std::make_tuple(pointArray, triangleArray, quadArray);
+}
+
+std::tuple<py::array_t<GridT::ValueType>, py::array_t<Index32>>
+py_volume_to_quad_mesh(pyGrid &grid, double iso_value) {
+    // Mesh the input grid and populate lists of mesh vertices and face vertex indices.
+    std::vector<Vec3s> points;
+    std::vector<Vec4I> quads;
+    tools::volumeToMesh(*grid.ptr, points, quads, iso_value);
+
+    std::vector<py::ssize_t> shape = {static_cast<py::ssize_t>(points.size()), 3};
+    std::vector<py::ssize_t> strides = {3 * static_cast<py::ssize_t>(sizeof(GridT::ValueType)),
+                                        static_cast<py::ssize_t>(sizeof(GridT::ValueType))};
+    py::array_t<GridT::ValueType> pointArrayObj(
+            py::buffer_info(points.data(), sizeof(GridT::ValueType), py::format_descriptor<GridT::ValueType>::format(),
+                            2, shape, strides));
+
+    shape = {static_cast<py::ssize_t>(quads.size()), 4};
+    strides = {4 * static_cast<py::ssize_t>(sizeof(Index32)), static_cast<py::ssize_t>(sizeof(Index32))};
+    py::array_t<Index32> quadArrayObj(
+            py::buffer_info(quads.data(), sizeof(Index32), py::format_descriptor<Index32>::format(), 2, shape,
+                            strides));
+
+    return std::make_tuple(pointArrayObj, quadArrayObj);
+}
+
 PYBIND11_MODULE(vdb, m) {
     m.doc() = "openvdb python bindings";
 
@@ -139,8 +212,11 @@ PYBIND11_MODULE(vdb, m) {
             .value("GRID_FOG_VOLUME", GridClass::GRID_FOG_VOLUME)
             .value("GRID_STAGGERED", GridClass::GRID_STAGGERED);
 
+    m.def("probe", &py_probe);
     m.def("from_array", &py_from_array);
     m.def("to_array", &py_to_array);
     m.def("write", &py_write);
     m.def("fog_to_sdf", &py_fog_to_sdf);
+    m.def("volume_to_mesh", &py_volume_to_mesh);
+    m.def("volume_to_quad_mesh", &py_volume_to_quad_mesh);
 }

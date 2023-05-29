@@ -6,23 +6,26 @@ def _normalize(v, r):
     return (v - r[0]) / (r[1] - r[0])
 
 
-def array_from_imread(input_image: str, threshold=(-np.inf, np.inf)):
+def array_from_imread(input_image: str) -> (np.ndarray, np.ndarray, np.ndarray):
     image = itk.imread(input_image)
     origin = np.array(itk.origin(image))
     spacing = np.array(itk.spacing(image))
+    array = itk.array_from_image(image)
+    array = np.swapaxes(array, 0, 2).copy().astype(np.float32)
+    return array, origin, spacing
 
-    image = itk.array_from_image(image)
-    image = np.swapaxes(image, 0, 2).copy().astype(np.float32)
-    if image.ndim == 1:
-        image = image[:, np.newaxis, np.newaxis]
-    elif image.ndim == 2:
-        image = image[:, np.newaxis]
-    elif image.ndim > 3:
-        raise RuntimeError(f'input image has {image.ndim} > 3 dimensions')
 
-    threshold = (np.max([threshold[0], np.min(image)]), np.min([threshold[1], np.max(image)]))
-    image = _normalize(image, threshold)
-    image[np.where(image < 0)] = 0
-    image[np.where(image > 1)] = 1
+def array_normalized(array: np.ndarray, minmax=(-np.inf, np.inf)) -> np.ndarray:
+    if array.ndim == 1:
+        array = array[:, np.newaxis, np.newaxis]
+    elif array.ndim == 2:
+        array = array[:, np.newaxis]
+    elif array.ndim > 3:
+        raise RuntimeError(f'input array has {array.ndim} > 3 dimensions')
 
-    return image, origin, spacing
+    minmax = (np.max([minmax[0], np.min(array)]), np.min([minmax[1], np.max(array)]))
+    array = _normalize(array, minmax)
+    array[np.where(array < 0)] = 0
+    array[np.where(array > 1)] = 1
+
+    return array
